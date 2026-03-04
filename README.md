@@ -389,6 +389,34 @@ This implementation includes complete modern tooling infrastructure for developm
 
 ---
 
+## Engagement & Budget
+
+### Team & Timeline
+
+| Role | Allocation | Duration |
+|------|-----------|----------|
+| Lead PM (Jacob) | 25 hrs/week | 18 weeks |
+| Lead Developer (US) | 40 hrs/week | 18 weeks |
+| Offshore Developer(s) | 2 × 35 hrs/week | 18 weeks |
+| QA Engineer | 25 hrs/week | 18 weeks |
+
+**Timeline:** 18 weeks total across 3 phases
+- **Phase 1: Discovery & Design** (3 weeks) — Service category taxonomy, provider verification requirements, matching algorithm design, payment flow architecture, trust & safety framework
+- **Phase 2: Core Build** (10 weeks) — Provider onboarding + verification pipeline, intelligent matching engine (PostGIS), Stripe Connect escrow payments, review/rating system, customer request flow
+- **Phase 3: Integration & Launch** (5 weeks) — Checkr integration, provider recruitment (first 3 metros), customer pilot, marketplace liquidity testing, dispute resolution workflow
+
+### Budget Summary
+
+| Category | Cost | Notes |
+|----------|------|-------|
+| PM & Strategy | $83,250 | Discovery, specs, stakeholder management |
+| Development (Lead + Offshore) | $179,280 | Core platform build |
+| QA Engineer | $15,750 | Testing and quality assurance |
+| **Total Engagement** | **$278,280** | Fixed-price, phases billed at milestones |
+| **Ongoing Run Rate** | **$1,100/month** | Infrastructure + AI tokens + support + variable transaction costs |
+
+---
+
 ## Product Documents
 
 | Document | Description |
