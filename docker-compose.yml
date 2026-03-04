@@ -49,8 +49,8 @@ services:
     environment:
       DATABASE_URL: postgresql://marketplace_user:dev_password_123@postgres:5432/marketplace
       REDIS_URL: redis://redis:6379/0
-      STRIPE_API_KEY: sk_test_placeholder
-      STRIPE_WEBHOOK_SECRET: whsec_test_placeholder
+      STRIPE_API_KEY: YOUR_STRIPE_TEST_KEY
+      STRIPE_WEBHOOK_SECRET: YOUR_STRIPE_WEBHOOK_SECRET
       CHECKR_API_KEY: test_api_key_placeholder
       LOG_LEVEL: INFO
     ports:
