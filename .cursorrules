@@ -1,0 +1,181 @@
+# Verified Services Marketplace - Cursor Context
+
+You are helping build a modern two-sided service marketplace platform. This is a production codebase where trust verification, geospatial matching, and payment escrow are core to the system.
+
+## System Overview
+
+**Three-sided marketplace:**
+- **Customers**: Post service requests, review bids, pay through escrow, rate providers
+- **Service Providers**: Receive matched jobs, submit competitive bids, complete work, earn payments
+- **Platform Operators**: Verify provider credentials, enforce quality SLAs, resolve disputes, monitor health metrics
+
+**Core Value Prop**: Verified service providers. Operator-controlled verification (licenses, insurance, background checks) creates trust moat vs. open platforms.
+
+## Architecture Stack
+
+**Frontend**: Next.js 14, TypeScript, shadcn/ui
+- Three separate portal experiences (customer, provider, operator)
+- Real-time updates via Supabase Realtime WebSockets
+
+**Backend**:
+- Fastapi (Python) for matching, verification, payments
+- Trigger.dev for long-running jobs
+- n8n for workflow automation (provider verification, bid notifications)
+
+**Database**: Supabase (PostgreSQL 15 + PostGIS 3.3)
+- PostGIS for geospatial radius queries and provider-customer matching
+- Row-Level Security (RLS) for role-based access
+- Materialized views for marketplace health metrics
+
+**Payments**: Stripe Connect
+- Escrow holds funds until job completion
+- Automatic splits to provider accounts (connected accounts)
+- Platform fee deduction
+- 1099 tracking for tax compliance
+
+**Auth**: Clerk (multi-tenant with organizations)
+- Three user types: customer, provider, operator
+- Organization management for MSOs (Multi-Service Organizations)
+
+**Notifications**:
+- SendGrid (email)
+- Twilio (SMS)
+- Firebase Cloud Messaging (push)
+
+## Key Business Rules
+
+### Provider Verification Pipeline
+
+Verification workflow (n8n automation):
+1. Provider submits application → n8n webhook triggers
+2. Checkr background check (criminal + identity) → webhook callback
+3. Auto-verify trade license (state board APIs where available)
+4. Auto-verify insurance certificate (validate expiry)
+5. If all pass → activate provider + create Stripe Connect account + send welcome email
+6. If any fail → notify operator + send rejection email with clear reasons
+
+States in schema: `pending`, `documents_submitted`, `checks_in_progress`, `operator_review`, `verified`, `rejected`, `suspended`
+
+### Matching Algorithm
+
+PostGIS-based spatial matching with composite scoring:
+
+```sql
+score = (
+  0.35 * (composite_rating / 5.0) +       -- Quality (weighted reviews)
+  0.25 * completion_rate +                 -- Reliability
+  0.20 * response_time_score +             -- Speed (≤60min = 1.0, ≤240min = 0.7, else 0.4)
+  0.15 * tier_bonus +                      -- Elite: 1.0, Preferred: 0.7, Standard: 0.4
+  0.05 * recency_bonus                     -- Recent activity signals active
+)
+```
+
+Flow:
+1. Customer posts service request with location + category + budget + date preference
+2. n8n triggers Supabase webhook → spatial query finds nearby providers
+3. Query filters: service category, location (ST_DWithin radius), verified status, available capacity
+4. Rank providers by composite score
+5. Send bid notifications to top providers
+6. Bidding window: 30 minutes default. If no bids → expand radius + re-notify
+
+### Escrow and Payments
+
+Stripe Connect flow:
+- Customer pays into escrow (PaymentIntent)
+- Funds held until job marked complete
+- Release triggers automatic payout to provider's Stripe Connect account
+- Platform fee deducted from provider payout
+- Failed job → refund to customer
+
+Payment states: `pending`, `escrow_held`, `captured`, `partially_refunded`, `refunded`, `failed`, `cancelled`
+Payout states: `pending`, `scheduled`, `paid`, `failed`
+
+## Database Schema Highlights
+
+**Key Tables**:
+- `providers`: Profiles, verification_status, stripe_account_id, composite_rating, service_location (geography point)
+- `customers`: Profiles, service_location (geography)
+- `service_requests`: Location (geography), status, bid_window_end, matching_radius_miles
+- `matched_providers`: Results of spatial matching, composite_score, distance_miles
+- `bids`: Provider responses to requests
+- `payments`: Stripe integration with escrow/payout tracking
+- `verifications`: Background checks, licenses, insurance with vendor_ref_id tracking
+- `reviews`: Weighted scores (quality, timeliness, communication)
+- `disputes`: Reason-based dispute tracking with resolution tracking
+
+**PostGIS Patterns**:
+- Provider service location: `GEOGRAPHY(POINT, 4326)` - can use ST_DWithin for radius queries
+- Request location: `GEOGRAPHY(POINT, 4326)` - enables accurate distance calculations
+- Indexes: GIST indexes on all geography columns for query performance
+- Materialized views: `provider_availability` (active jobs + capacity), `marketplace_health` (daily metrics)
+
+## Code Style and Patterns
+
+**Python (FastAPI)**:
+- Use `async def` for all handlers
+- Pydantic models for request/response validation
+- Type hints on all functions
+- SQLAlchemy ORM for database access (with PostGIS support)
+- Error responses use consistent `{"error": "message", "code": "ERROR_CODE"}` format
+
+**TypeScript (Next.js/Trigger.dev)**:
+- Use arrow functions
+- Explicit return types on all functions
+- Handle async errors with try-catch
+- Use Zod for runtime validation of external data
+- Log important events (verification complete, bid received, payment released)
+
+**SQL**:
+- Use parameterized queries (prevent injection)
+- Index on frequently filtered columns
+- Use EXPLAIN ANALYZE to verify query performance
+- Comment complex queries with intent
+
+## Testing Requirements
+
+- Unit tests for matching algorithm (verify score calculations)
+- Integration tests for payment flows (escrow → release)
+- Integration tests for verification pipeline (checkr → license → insurance)
+- E2E tests for bidding workflow (request → matching → bid → award → payment)
+
+## Common Tasks
+
+### Adding a new verification check type
+1. Add check_type enum value to verifications table schema
+2. Add handler in n8n verification workflow
+3. Add to provider_verifier.py enum
+4. Update verification status display in provider portal
+
+### Modifying matching weights
+1. Update composite_score formula in schema/queries/matching_queries.sql
+2. Backfill matched_providers materialized view
+3. Update Trigger.dev matching_engine.ts to use same weights
+4. A/B test impact on bid response times + coverage %
+
+### Adding new provider tier
+1. Add tier value to providers.tier enum
+2. Update matching algorithm weights (tier_bonus component)
+3. Update provider portal tier display + benefits messaging
+4. Add tier upgrade requirements in verification logic
+
+## Deployment Checklist
+
+- [ ] All migrations run on Supabase (SQL files in supabase/migrations/)
+- [ ] n8n workflows deployed (provider_verification.json, matching_notification.json)
+- [ ] Stripe Connect configured with webhook handlers
+- [ ] Clerk auth configured with three org types
+- [ ] Trigger.dev jobs deployed (matching_engine.ts, provider_onboarding.ts)
+- [ ] Email templates deployed (React Email)
+- [ ] Environment variables set (.env.local, .env.test, .env.production)
+- [ ] Database backups configured
+- [ ] Monitoring alerts configured (payment failures, verification failures, matching coverage)
+
+## Key Metrics to Monitor
+
+- Provider verification time (target: 48 hours)
+- Requests with 3+ bids within 24h (target: 80%+)
+- Average time to first bid (target: 4 hours)
+- Customer satisfaction (CSAT, target: 4.5/5.0)
+- Repeat booking rate (target: 50%+)
+- Provider retention at 90 days (target: 85%+)
+- Payment success rate (target: 99%+)

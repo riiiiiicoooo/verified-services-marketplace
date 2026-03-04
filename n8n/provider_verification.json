@@ -1,0 +1,649 @@
+{
+  "name": "Provider Verification Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "a7f3e4c0-5b2c-4d1e-9f6a-8c2b7d9e3f1a",
+        "responseMode": "responseNode"
+      },
+      "id": "webhook_trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.checkr.com/v1/candidates",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Basic {{ $env.CHECKR_API_KEY }}"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "first_name",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"first_name\"] }}"
+            },
+            {
+              "name": "last_name",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"last_name\"] }}"
+            },
+            {
+              "name": "email",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"email\"] }}"
+            },
+            {
+              "name": "phone",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"phone\"] }}"
+            }
+          ]
+        }
+      },
+      "id": "checkr_background_check",
+      "name": "Checkr: Create Background Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "waitMethod": "webhook",
+        "webhookUrl": "https://your-domain.com/webhooks/checkr-callback"
+      },
+      "id": "wait_for_checkr",
+      "name": "Wait for Checkr Result",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "{{ $node[\"wait_for_checkr\"].json[\"status\"] }}",
+              "operation": "equals",
+              "value2": \"completed"
+            }
+          ]
+        }
+      },
+      "id": "check_background_result",
+      "name": "Background Check Passed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [700, 300]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.SUPABASE_URL }}/rest/v1/verifications",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer {{ $env.SUPABASE_ANON_KEY }}",
+          "Content-Type": "application/json",
+          "Prefer": "return=representation"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "provider_id",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"provider_id\"] }}"
+            },
+            {
+              "name": "check_type",
+              "value": "criminal_background"
+            },
+            {
+              "name": "status",
+              "value": "passed"
+            },
+            {
+              "name": "vendor",
+              "value": "checkr"
+            },
+            {
+              "name": "vendor_ref_id",
+              "value": "{{ $node[\"wait_for_checkr\"].json[\"id\"] }}"
+            },
+            {
+              "name": "verified_at",
+              "value": "{{ now.toISOString() }}"
+            }
+          ]
+        }
+      },
+      "id": "record_background_passed",
+      "name": "Record Background Check Passed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://api.example-license-api.com/verify",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer {{ $env.LICENSE_API_KEY }}"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "license_number",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"license_number\"] }}"
+            },
+            {
+              "name": "state",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"state\"] }}"
+            },
+            {
+              "name": "trade",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"trade\"] }}"
+            }
+          ]
+        }
+      },
+      "id": "verify_trade_license",
+      "name": "Verify Trade License",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.SUPABASE_URL }}/rest/v1/verifications",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer {{ $env.SUPABASE_ANON_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "provider_id",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"provider_id\"] }}"
+            },
+            {
+              "name": "check_type",
+              "value": "trade_license"
+            },
+            {
+              "name": "status",
+              "value": "{{ $node[\"verify_trade_license\"].json[\"valid\"] ? \"passed\" : \"failed\" }}"
+            },
+            {
+              "name": "document_number",
+              "value": "{{ $node[\"verify_trade_license\"].json[\"license_number\"] }}"
+            },
+            {
+              "name": "vendor",
+              "value": "state_licensing_board"
+            },
+            {
+              "name": "failure_reason",
+              "value": "{{ $node[\"verify_trade_license\"].json[\"error\"] }}"
+            }
+          ]
+        }
+      },
+      "id": "record_license_verification",
+      "name": "Record License Verification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1100, 300]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.SUPABASE_URL }}/rest/v1/verifications",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer {{ $env.SUPABASE_ANON_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "provider_id",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"provider_id\"] }}"
+            },
+            {
+              "name": "check_type",
+              "value": "general_liability_insurance"
+            },
+            {
+              "name": "status",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"insurance_expiry\"] > now.toISO() ? \"passed\" : \"failed\" }}"
+            },
+            {
+              "name": "document_number",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"insurance_policy_number\"] }}"
+            },
+            {
+              "name": "issued_at",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"insurance_issued_at\"] }}"
+            },
+            {
+              "name": "expires_at",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"insurance_expiry\"] }}"
+            },
+            {
+              "name": "vendor",
+              "value": "insurance_provider"
+            }
+          ]
+        }
+      },
+      "id": "record_insurance_verification",
+      "name": "Record Insurance Verification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1100, 400]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "{{ $node[\"record_license_verification\"].json[\"status\"] }}",
+              "operation": "equals",
+              "value2": \"passed"
+            },
+            {
+              "value1": "{{ $node[\"record_insurance_verification\"].json[\"status\"] }}",
+              "operation": "equals",
+              "value2": \"passed"
+            }
+          ]
+        }
+      },
+      "id": "all_checks_passed",
+      "name": "All Checks Passed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1300, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.stripe.com/v1/accounts",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer {{ $env.STRIPE_SECRET_KEY }}"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "type",
+              "value": "express"
+            },
+            {
+              "name": "country",
+              "value": "US"
+            },
+            {
+              "name": "email",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"email\"] }}"
+            },
+            {
+              "name": "business_type",
+              "value": "individual"
+            }
+          ]
+        }
+      },
+      "id": "create_stripe_account",
+      "name": "Create Stripe Connect Account",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1500, 200]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.SUPABASE_URL }}/rest/v1/providers?id=eq.{{ $node[\"webhook_trigger\"].json[\"provider_id\"] }}",
+        "method": "PATCH",
+        "headers": {
+          "Authorization": "Bearer {{ $env.SUPABASE_ANON_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "verification_status",
+              "value": "verified"
+            },
+            {
+              "name": "is_active",
+              "value": true
+            },
+            {
+              "name": "stripe_account_id",
+              "value": "{{ $node[\"create_stripe_account\"].json[\"id\"] }}"
+            }
+          ]
+        }
+      },
+      "id": "activate_provider",
+      "name": "Activate Provider in DB",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1700, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "{{ $env.SENDGRID_FROM_EMAIL }}",
+        "toEmail": "{{ $node[\"webhook_trigger\"].json[\"email\"] }}",
+        "subject": "Welcome to Verified Services Marketplace!",
+        "text": "Congratulations {{ $node[\"webhook_trigger\"].json[\"contact_name\"] }}! Your verification is complete and your account is now active.",
+        "html": "<h2>Welcome {{ $node[\"webhook_trigger\"].json[\"contact_name\"] }}!</h2><p>Your background check and license verification passed. You're now verified and can start receiving job matches.</p>"
+      },
+      "id": "send_welcome_email",
+      "name": "SendGrid: Welcome Email",
+      "type": "n8n-nodes-base.sendGrid",
+      "typeVersion": 1,
+      "position": [1700, 300]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.SUPABASE_URL }}/rest/v1/verifications",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer {{ $env.SUPABASE_ANON_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "provider_id",
+              "value": "{{ $node[\"webhook_trigger\"].json[\"provider_id\"] }}"
+            },
+            {
+              "name": "check_type",
+              "value": "{{ $node[\"check_background_result\"].json[\"failed_check_type\"] || \"criminal_background\" }}"
+            },
+            {
+              "name": "status",
+              "value": "failed"
+            },
+            {
+              "name": "failure_reason",
+              "value": "{{ $node[\"wait_for_checkr\"].json[\"failure_reason\"] }}"
+            }
+          ]
+        }
+      },
+      "id": "record_background_failed",
+      "name": "Record Background Check Failed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 500]
+    },
+    {
+      "parameters": {
+        "fromEmail": "{{ $env.SENDGRID_FROM_EMAIL }}",
+        "toEmail": "{{ $node[\"webhook_trigger\"].json[\"email\"] }}",
+        "subject": "Verification Incomplete - Action Required",
+        "text": "We were unable to complete your verification. Please review the requirements and resubmit.",
+        "html": "<h2>Verification Incomplete</h2><p>{{ $node[\"record_background_failed\"].json[\"failure_reason\"] }}</p><p>Please contact support for assistance.</p>"
+      },
+      "id": "send_rejection_email",
+      "name": "SendGrid: Rejection Email",
+      "type": "n8n-nodes-base.sendGrid",
+      "typeVersion": 1,
+      "position": [1100, 500]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.SUPABASE_URL }}/rest/v1/notifications",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer {{ $env.SUPABASE_ANON_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "user_id",
+              "value": "{{ $env.OPERATOR_USER_ID }}"
+            },
+            {
+              "name": "user_role",
+              "value": "operator"
+            },
+            {
+              "name": "type",
+              "value": "verification_manual_review_required"
+            },
+            {
+              "name": "title",
+              "value": "Manual Review Required: {{ $node[\"webhook_trigger\"].json[\"contact_name\"] }}"
+            },
+            {
+              "name": "body",
+              "value": "Background check failed. Review reason and determine next steps."
+            },
+            {
+              "name": "data",
+              "value": "{\"provider_id\": \"{{ $node[\"webhook_trigger\"].json[\"provider_id\"] }}\", \"reason\": \"background_check_failed\"}"
+            }
+          ]
+        }
+      },
+      "id": "notify_operator",
+      "name": "Notify Operator of Failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1100, 600]
+    },
+    {
+      "parameters": {
+        "responseCode": 200,
+        "responseData": "{{ {\"success\": true} }}"
+      },
+      "id": "response_success",
+      "name": "Response: Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1900, 200]
+    },
+    {
+      "parameters": {
+        "responseCode": 200,
+        "responseData": "{{ {\"success\": false, \"reason\": \"verification_failed\"} }}"
+      },
+      "id": "response_failure",
+      "name": "Response: Failure",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1300, 600]
+    }
+  ],
+  "connections": {
+    "webhook_trigger": {
+      "main": [
+        [
+          {
+            "node": "checkr_background_check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "checkr_background_check": {
+      "main": [
+        [
+          {
+            "node": "wait_for_checkr",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "wait_for_checkr": {
+      "main": [
+        [
+          {
+            "node": "check_background_result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "check_background_result": {
+      "main": [
+        [
+          {
+            "node": "record_background_passed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "record_background_failed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "record_background_passed": {
+      "main": [
+        [
+          {
+            "node": "verify_trade_license",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "verify_trade_license": {
+      "main": [
+        [
+          {
+            "node": "record_license_verification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "record_license_verification": {
+      "main": [
+        [
+          {
+            "node": "record_insurance_verification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "record_insurance_verification": {
+      "main": [
+        [
+          {
+            "node": "all_checks_passed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "all_checks_passed": {
+      "main": [
+        [
+          {
+            "node": "create_stripe_account",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "notify_operator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "create_stripe_account": {
+      "main": [
+        [
+          {
+            "node": "activate_provider",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "activate_provider": {
+      "main": [
+        [
+          {
+            "node": "send_welcome_email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send_welcome_email": {
+      "main": [
+        [
+          {
+            "node": "response_success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "record_background_failed": {
+      "main": [
+        [
+          {
+            "node": "send_rejection_email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send_rejection_email": {
+      "main": [
+        [
+          {
+            "node": "notify_operator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "notify_operator": {
+      "main": [
+        [
+          {
+            "node": "response_failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

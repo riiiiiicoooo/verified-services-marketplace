@@ -1,0 +1,89 @@
+version: '3.9'
+
+services:
+  # PostGIS Database with all extensions
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: verified-marketplace-db
+    environment:
+      POSTGRES_DB: marketplace
+      POSTGRES_USER: marketplace_user
+      POSTGRES_PASSWORD: dev_password_123
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./schema/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./schema/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marketplace_user -d marketplace"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marketplace
+
+  # Redis for caching and rate limiting
+  redis:
+    image: redis:7-alpine
+    container_name: verified-marketplace-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marketplace
+
+  # FastAPI application
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: verified-marketplace-api
+    environment:
+      DATABASE_URL: postgresql://marketplace_user:dev_password_123@postgres:5432/marketplace
+      REDIS_URL: redis://redis:6379/0
+      STRIPE_API_KEY: sk_test_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_test_placeholder
+      CHECKR_API_KEY: test_api_key_placeholder
+      LOG_LEVEL: INFO
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    networks:
+      - marketplace
+
+  # pgAdmin for database inspection
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: verified-marketplace-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@marketplace.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - marketplace
+
+networks:
+  marketplace:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,82 @@
+{
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+  "nodeVersion": "20.x",
+  "regions": ["sfo1"],
+  "functions": {
+    "api/**": {
+      "maxDuration": 300,
+      "memory": 3008
+    }
+  },
+  "env": [
+    {
+      "key": "NEXT_PUBLIC_BASE_URL",
+      "value": "@next_public_base_url"
+    },
+    {
+      "key": "NEXT_PUBLIC_SUPABASE_URL",
+      "value": "@next_public_supabase_url"
+    },
+    {
+      "key": "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+      "value": "@next_public_supabase_anon_key"
+    },
+    {
+      "key": "NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY",
+      "value": "@next_public_stripe_publishable_key"
+    },
+    {
+      "key": "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+      "value": "@next_public_clerk_publishable_key"
+    },
+    {
+      "key": "SUPABASE_URL",
+      "value": "@supabase_url"
+    },
+    {
+      "key": "SUPABASE_ANON_KEY",
+      "value": "@supabase_anon_key"
+    },
+    {
+      "key": "STRIPE_SECRET_KEY",
+      "value": "@stripe_secret_key"
+    },
+    {
+      "key": "CLERK_SECRET_KEY",
+      "value": "@clerk_secret_key"
+    }
+  ],
+  "redirects": [
+    {
+      "source": "/",
+      "destination": "/customer",
+      "permanent": false
+    }
+  ],
+  "headers": [
+    {
+      "source": "/api/:path*",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    }
+  ]
+}

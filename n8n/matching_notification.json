@@ -1,0 +1,502 @@
+{
+  "name": "Matching Notification Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "b4e2d1f0-7a8c-4f2e-8b3c-5d9a2e6f1c7a",
+        "responseMode": "responseNode"
+      },
+      "id": "supabase_webhook_trigger",
+      "name": "Supabase Webhook: New Service Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [100, 300]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.SUPABASE_URL }}/rest/v1/rpc/find_nearby_providers",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer {{ $env.SUPABASE_ANON_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "request_longitude",
+              "value": "{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"location\"][\"coordinates\"][0] }}"
+            },
+            {
+              "name": "request_latitude",
+              "value": "{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"location\"][\"coordinates\"][1] }}"
+            },
+            {
+              "name": "category_id",
+              "value": "{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"category_id\"] }}"
+            },
+            {
+              "name": "radius_miles",
+              "value": "{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"matching_radius_miles\"] }}"
+            }
+          ]
+        }
+      },
+      "id": "spatial_query_providers",
+      "name": "PostGIS: Find Nearby Providers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [300, 300]
+    },
+    {
+      "parameters": {
+        "dataPropertyName": "body"
+      },
+      "id": "transform_provider_results",
+      "name": "Transform: Sort by Composite Score",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [500, 300],
+      "notesInFlow": true,
+        "notes": "Sort providers by composite_score DESC, take top 10"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Sort providers by composite_score DESC, limit to top 10\nreturn $node[\"spatial_query_providers\"].json.map((provider, index) => ({\n  ...provider,\n  match_rank: index + 1\n})).slice(0, 10);"
+      },
+      "id": "rank_providers",
+      "name": "Code: Rank Providers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.SUPABASE_URL }}/rest/v1/matched_providers",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer {{ $env.SUPABASE_ANON_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "request_id",
+              "value": "{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"id\"] }}"
+            },
+            {
+              "name": "provider_id",
+              "value": "{{ $item.json[\"provider_id\"] }}"
+            },
+            {
+              "name": "composite_score",
+              "value": "{{ $item.json[\"composite_score\"] }}"
+            },
+            {
+              "name": "distance_miles",
+              "value": "{{ $item.json[\"distance_miles\"] }}"
+            },
+            {
+              "name": "notified_at",
+              "value": "{{ now.toISOString() }}"
+            }
+          ]
+        }
+      },
+      "id": "insert_matched_providers",
+      "name": "Insert Matched Providers",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [700, 300],
+      "notesInFlow": true,
+      "notes": "Loop through ranked providers"
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.SUPABASE_URL }}/rest/v1/providers?id=eq.{{ $item.json[\"provider_id\"] }}",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer {{ $env.SUPABASE_ANON_KEY }}"
+        }
+      },
+      "id": "get_provider_contact_info",
+      "name": "Get Provider Contact Info",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "bodyParametersUi": "pairs",
+        "bodyParameters": [
+          {
+            "name": "from_email",
+            "value": "{{ $env.SENDGRID_FROM_EMAIL }}"
+          },
+          {
+            "name": "personalizations",
+            "value": "[{\"to\": [{\"email\": \"{{ $item.json[0][\"email\"] }}\"}]}]"
+          },
+          {
+            "name": "subject",
+            "value": "New Job: {{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"title\"] }} ({{ $item.json[\"match_rank\"] }} of 10)"
+          },
+          {
+            "name": "content",
+            "value": "[{\"type\": \"text/html\", \"value\": \"<h2>New Job Match!</h2><p>A customer needs {{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"title\"] }}</p><p><strong>Location:</strong> {{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"address_city\"] }}, {{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"address_state\"] }}</p><p><strong>Budget:</strong> ${{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"budget_min\"] }} - ${{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"budget_max\"] }}</p><p><strong>Distance:</strong> {{ $item.json[\"distance_miles\"] }} miles</p><p><a href=\\\"https://marketplace.example.com/requests/{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"id\"] }}\\\">View Job & Submit Bid</a></p>\"}]"
+          }
+        ]
+      },
+      "id": "send_email_notification",
+      "name": "SendGrid: Email Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1100, 300],
+      "notesInFlow": true,
+      "notes": "Send email to each matched provider"
+    },
+    {
+      "parameters": {
+        "url": "https://fcm.googleapis.com/fcm/send",
+        "method": "POST",
+        "headers": {
+          "Authorization": "key={{ $env.FCM_SERVER_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "to",
+              "value": "{{ $item.json[0][\"fcm_token\"] }}"
+            },
+            {
+              "name": "notification",
+              "value": "{\"title\": \"New Job Match\", \"body\": \"{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"title\"] }} - {{ $item.json[\"distance_miles\"] }} miles away\"}"
+            },
+            {
+              "name": "data",
+              "value": "{\"request_id\": \"{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"id\"] }}\", \"match_rank\": {{ $item.json[\"match_rank\"] }}}"
+            }
+          ]
+        }
+      },
+      "id": "send_push_notification",
+      "name": "FCM: Push Notification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1300, 300],
+      "notesInFlow": true,
+      "notes": "Send push if provider has FCM token"
+    },
+    {
+      "parameters": {
+        "fromPhoneNumber": "{{ $env.TWILIO_PHONE_NUMBER }}",
+        "toPhoneNumber": "{{ $item.json[0][\"phone\"] }}",
+        "message": "New job match: {{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"title\"] }} in {{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"address_city\"] }}. Check the app to bid!"
+      },
+      "id": "send_sms_notification",
+      "name": "Twilio: SMS Notification",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [1500, 300],
+      "notesInFlow": true,
+      "notes": "Send SMS if provider prefers SMS"
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.SUPABASE_URL }}/rest/v1/service_requests?id=eq.{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"id\"] }}",
+        "method": "PATCH",
+        "headers": {
+          "Authorization": "Bearer {{ $env.SUPABASE_ANON_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "status",
+              "value": "bidding"
+            },
+            {
+              "name": "bid_window_end",
+              "value": "{{ new Date(Date.now() + 30 * 60 * 1000).toISOString() }}"
+            }
+          ]
+        }
+      },
+      "id": "update_request_status",
+      "name": "Update Request: Start Bidding Window",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1700, 300]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.SUPABASE_URL }}/rest/v1/notifications",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer {{ $env.SUPABASE_ANON_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "user_id",
+              "value": "{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"customer_id\"] }}"
+            },
+            {
+              "name": "user_role",
+              "value": "customer"
+            },
+            {
+              "name": "type",
+              "value": "bids_incoming"
+            },
+            {
+              "name": "title",
+              "value": "Bids Coming In!"
+            },
+            {
+              "name": "body",
+              "value": "Your request for {{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"title\"] }} has been sent to verified providers."
+            },
+            {
+              "name": "data",
+              "value": "{\"request_id\": \"{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"id\"] }}\"}"
+            }
+          ]
+        }
+      },
+      "id": "notify_customer_matching_complete",
+      "name": "Notify Customer: Matching Complete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1900, 300]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.SUPABASE_URL }}/rest/v1/service_requests?id=eq.{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"id\"] }}&select=total_bids",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer {{ $env.SUPABASE_ANON_KEY }}"
+        }
+      },
+      "id": "check_bid_count_at_30min",
+      "name": "Check Bids at 30-Minute Mark",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2100, 300],
+      "notesInFlow": true,
+      "notes": "Scheduled via Trigger.dev to run at bid_window_end - 5 min"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "{{ $node[\"check_bid_count_at_30min\"].json[0][\"total_bids\"] }}",
+              "operation": "lessThan",
+              "value2": 1
+            }
+          ]
+        }
+      },
+      "id": "no_bids_received",
+      "name": "No Bids Received?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2300, 300]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.SUPABASE_URL }}/rest/v1/service_requests?id=eq.{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"id\"] }}",
+        "method": "PATCH",
+        "headers": {
+          "Authorization": "Bearer {{ $env.SUPABASE_ANON_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "matching_radius_miles",
+              "value": "{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"matching_radius_miles\"] + 10 }}"
+            },
+            {
+              "name": "bid_window_end",
+              "value": "{{ new Date(Date.now() + 30 * 60 * 1000).toISOString() }}"
+            }
+          ]
+        }
+      },
+      "id": "expand_search_radius",
+      "name": "Expand Search Radius by 10 Miles",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2500, 300]
+    },
+    {
+      "parameters": {
+        "url": "{{ $env.SUPABASE_URL }}/rest/v1/rpc/find_nearby_providers",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer {{ $env.SUPABASE_ANON_KEY }}",
+          "Content-Type": "application/json"
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "request_longitude",
+              "value": "{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"location\"][\"coordinates\"][0] }}"
+            },
+            {
+              "name": "request_latitude",
+              "value": "{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"location\"][\"coordinates\"][1] }}"
+            },
+            {
+              "name": "category_id",
+              "value": "{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"category_id\"] }}"
+            },
+            {
+              "name": "radius_miles",
+              "value": "{{ $node[\"supabase_webhook_trigger\"].json[\"record\"][\"matching_radius_miles\"] + 10 }}"
+            }
+          ]
+        }
+      },
+      "id": "re_query_with_expanded_radius",
+      "name": "Re-query Providers (Expanded Radius)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [2700, 300]
+    },
+    {
+      "parameters": {
+        "responseCode": 200,
+        "responseData": "{{ {\"success\": true, \"matched_providers\": $node[\"rank_providers\"].json.length} }}"
+      },
+      "id": "response_success",
+      "name": "Response: Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2900, 300]
+    }
+  ],
+  "connections": {
+    "supabase_webhook_trigger": {
+      "main": [
+        [
+          {
+            "node": "spatial_query_providers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "spatial_query_providers": {
+      "main": [
+        [
+          {
+            "node": "rank_providers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "rank_providers": {
+      "main": [
+        [
+          {
+            "node": "insert_matched_providers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "insert_matched_providers": {
+      "main": [
+        [
+          {
+            "node": "get_provider_contact_info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get_provider_contact_info": {
+      "main": [
+        [
+          {
+            "node": "send_email_notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send_email_notification": {
+      "main": [
+        [
+          {
+            "node": "send_push_notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send_push_notification": {
+      "main": [
+        [
+          {
+            "node": "send_sms_notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send_sms_notification": {
+      "main": [
+        [
+          {
+            "node": "update_request_status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "update_request_status": {
+      "main": [
+        [
+          {
+            "node": "notify_customer_matching_complete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "notify_customer_matching_complete": {
+      "main": [
+        [
+          {
+            "node": "response_success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

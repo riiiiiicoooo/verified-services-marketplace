@@ -1,0 +1,39 @@
+entrypoint = "src/main.py"
+modules = ["python-3.11", "nodejs-20", "postgresql-15"]
+
+[env]
+PYTHONUNBUFFERED = "1"
+DATABASE_URL = "postgresql://user:password@localhost:5432/marketplace"
+SUPABASE_URL = "${SUPABASE_URL}"
+SUPABASE_KEY = "${SUPABASE_KEY}"
+STRIPE_SECRET_KEY = "${STRIPE_SECRET_KEY}"
+STRIPE_PUBLISHABLE_KEY = "${STRIPE_PUBLISHABLE_KEY}"
+
+[nix]
+channel = "stable-23_11"
+
+[unitTest]
+language = "python"
+
+[packager]
+language = "python"
+ignoredPaths = [".git", "node_modules"]
+
+[packager.features]
+packageSearch = true
+guessImports = true
+
+[languages.python]
+pattern = "**/*.py"
+
+[languages.javascript]
+pattern = "**/*.{js,jsx,ts,tsx}"
+
+[build]
+build = "npm run build && pip install -r requirements.txt"
+
+[run]
+run = "python src/main.py"
+
+[debugger]
+support = true

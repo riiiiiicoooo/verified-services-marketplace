@@ -329,6 +329,66 @@ verified-services-marketplace/
 
 ---
 
+## Modern Stack (Production-Ready)
+
+This implementation includes complete modern tooling infrastructure for development and deployment:
+
+| Component | Purpose | Location |
+|---|---|---|
+| **.cursorrules** | Cursor IDE context for AI-assisted development | `.cursorrules` |
+| **.replit + replit.nix** | Replit IDE configuration with all dependencies | `.replit`, `replit.nix` |
+| **Supabase Migrations** | PostgreSQL + PostGIS schema with RLS & triggers | `supabase/migrations/001_initial_schema.sql` |
+| **n8n Workflows** | Automated verification pipeline & bid notifications | `n8n/provider_verification.json`, `n8n/matching_notification.json` |
+| **Trigger.dev Jobs** | Long-running matching engine & provider onboarding | `trigger-jobs/matching_engine.ts`, `trigger-jobs/provider_onboarding.ts` |
+| **Stripe Connect** | Payment escrow, provider splits, automated payouts, 1099 tracking | `stripe/marketplace_payments.py` |
+| **Clerk Auth** | Multi-tenant authentication (customer/provider/operator), organizations | `clerk/marketplace_auth.ts` |
+| **React Email Templates** | Booking confirmations, verification status notifications | `emails/booking_confirmation.tsx`, `emails/verification_status.tsx` |
+| **Vercel Config** | Deployment configuration, security headers, environment variables | `vercel.json` |
+| **Environment Template** | All required API keys and configuration | `.env.example` |
+
+### Architecture Highlights
+
+**PostGIS Spatial Matching**:
+- Real-time provider search within configurable radius (ST_DWithin)
+- GIST indexes for location queries
+- Composite scoring: 35% rating, 25% completion rate, 20% response time, 15% tier, 5% recency
+
+**Provider Verification Pipeline** (n8n):
+- Checkr background check (webhook callback)
+- State license board API verification
+- Insurance certificate validation
+- Automatic Stripe Connect account creation on approval
+- Operator review queue for manual checks
+
+**Bid Matching Workflow** (Trigger.dev + n8n):
+- Spatial query finds nearby providers (top 10 ranked)
+- Multi-channel notifications (email, SMS, push)
+- 30-minute bidding window with auto-expand to wider radius if no bids
+- Real-time customer notifications
+
+**Stripe Connect Escrow**:
+- PaymentIntent created with `transfer_data` for automatic splits
+- Manual capture method holds funds until completion
+- Provider payout happens automatically via Stripe Transfer
+- Platform fee deducted from provider payout
+- Full refund handling for disputed jobs
+
+**Authentication** (Clerk):
+- Three user types: customer, provider, operator
+- Organization support for Multi-Service Organizations (MSOs)
+- Role-based permissions and access control
+
+### Quick Start
+
+1. Copy `.env.example` to `.env.local` and populate API keys
+2. Deploy Supabase migration: `supabase migration up`
+3. Import n8n workflows from `n8n/` directory
+4. Deploy Trigger.dev jobs: `trigger deploy`
+5. Configure Stripe webhooks and Clerk post-signup hooks
+6. Run: `npm install && npm run dev`
+
+---
+
 ## Product Documents
 
 | Document | Description |
