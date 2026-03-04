@@ -1,0 +1,426 @@
+# LaunchDarkly Feature Flag Definitions
+# =====================================
+#
+# This file defines all feature flags for the Verified Services Marketplace
+# including targeting rules, rollout percentages, and flag lifecycle.
+
+flags:
+
+  # ========== INSTANT BOOKING ==========
+  # Binary flag with progressive rollout over 4 weeks
+  enable_instant_booking:
+    key: "enable_instant_booking"
+    name: "Instant Booking"
+    description: "Allow customers to book services instantly without provider approval"
+    kind: "boolean"
+    enabled: true
+    
+    # Variations
+    variations:
+      - key: "off"
+        name: "Disabled"
+        value: false
+      - key: "on"
+        name: "Enabled"
+        value: true
+    
+    default_variation: "off"
+    
+    # Progressive rollout schedule
+    rollout_schedule:
+      week_1:
+        date: "2026-02-11"
+        percentage: 0
+        description: "Initial launch - disabled"
+      week_2:
+        date: "2026-02-18"
+        percentage: 10
+        description: "10% rollout to beta users"
+      week_3:
+        date: "2026-02-25"
+        percentage: 50
+        description: "50% rollout to all regions"
+      week_4:
+        date: "2026-03-04"
+        percentage: 100
+        description: "Full rollout to all users"
+    
+    # Targeting rules
+    targeting_rules:
+      - description: "Disable for low-tier customers"
+        conditions:
+          - attribute: "subscription_tier"
+            operator: "is"
+            values: ["basic"]
+        variation: "off"
+      
+      - description: "Enable for enterprise operators"
+        conditions:
+          - attribute: "account_type"
+            operator: "equals"
+            value: "operator"
+        variation: "on"
+    
+    # Prerequisites
+    prerequisites: []
+    
+    # Lifecycle
+    status: "partial_rollout"
+    launched_date: "2026-02-11"
+    target_completion_date: "2026-03-04"
+    kill_switch: false
+
+
+  # ========== PROVIDER VERIFICATION V2 ==========
+  # A/B experiment comparing two verification approaches
+  provider_verification_v2:
+    key: "provider_verification_v2"
+    name: "Provider Verification V2"
+    description: "A/B test: legacy manual review vs. automated + Checkr verification"
+    kind: "string"
+    enabled: true
+    
+    variations:
+      - key: "legacy_manual"
+        name: "Legacy Manual Review"
+        value: "legacy_manual_review"
+        weight: 50
+      - key: "automated_checkr"
+        name: "Automated + Checkr"
+        value: "automated_plus_checkr"
+        weight: 50
+    
+    default_variation: "legacy_manual"
+    
+    # Experiment configuration
+    experiment:
+      type: "a_b_test"
+      hypothesis: "Automated verification with Checkr reduces verification time and improves user experience"
+      duration_days: 21
+      start_date: "2026-02-18"
+      end_date: "2026-03-11"
+    
+    # Target only new providers
+    targeting_rules:
+      - description: "A/B test for new providers only"
+        conditions:
+          - attribute: "account_type"
+            operator: "equals"
+            value: "provider"
+          - attribute: "account_age_days"
+            operator: "lessThan"
+            value: 30
+        bucket: "even_split"  # 50/50 split
+    
+    # Primary metrics
+    metrics:
+      primary:
+        - name: "verification_completion_rate"
+          description: "Percentage of providers who complete verification"
+        - name: "verification_time_hours"
+          description: "Average hours to complete verification"
+      
+      secondary:
+        - name: "verification_quality_score"
+          description: "Quality score of verification data"
+        - name: "false_positive_rate"
+          description: "Percentage of rejected providers who appeal"
+    
+    prerequisites:
+      - "enable_ml_recommendations"  # Requires this flag
+    
+    status: "partial_rollout"
+    launched_date: "2026-02-18"
+
+
+  # ========== DYNAMIC PRICING ==========
+  # Multivariate test comparing three pricing strategies
+  dynamic_pricing:
+    key: "dynamic_pricing"
+    name: "Dynamic Pricing"
+    description: "Multivariate test: fixed vs. surge vs. demand-based pricing"
+    kind: "string"
+    enabled: true
+    
+    variations:
+      - key: "fixed"
+        name: "Fixed Pricing"
+        value: "fixed"
+        weight: 33.33
+        description: "Standard fixed service pricing"
+      
+      - key: "surge"
+        name: "Surge Pricing"
+        value: "surge_pricing"
+        weight: 33.33
+        description: "Higher prices during peak hours (morning/evening)"
+      
+      - key: "demand_based"
+        name: "Demand-Based"
+        value: "demand_based"
+        weight: 33.34
+        description: "ML-driven pricing based on demand curve"
+    
+    default_variation: "fixed"
+    
+    # Multivariate experiment
+    experiment:
+      type: "multivariate"
+      hypothesis: "Dynamic pricing optimizes revenue while maintaining customer satisfaction"
+      duration_days: 30
+      metrics:
+        - name: "booking_conversion_rate"
+          direction: "higher"
+        - name: "average_transaction_value"
+          direction: "higher"
+        - name: "customer_satisfaction"
+          direction: "higher"
+    
+    # Targeting rules
+    targeting_rules:
+      - description: "Use fixed pricing for enterprise customers"
+        conditions:
+          - attribute: "subscription_tier"
+            operator: "equals"
+            value: "enterprise"
+        variation: "fixed"
+      
+      - description: "Demand-based only for premium tier"
+        conditions:
+          - attribute: "subscription_tier"
+            operator: "equals"
+            value: "premium"
+        variation: "demand_based"
+    
+    prerequisites:
+      - "enable_instant_booking"  # Requires instant booking
+    
+    status: "partial_rollout"
+    launched_date: "2026-02-25"
+
+
+  # ========== NEW SEARCH ALGORITHM ==========
+  # Beta feature for power users only
+  new_search_algorithm:
+    key: "new_search_algorithm"
+    name: "New Search Algorithm"
+    description: "Improved search and filtering using ML for marketplace discovery"
+    kind: "boolean"
+    enabled: true
+    
+    variations:
+      - key: "off"
+        name: "Old Algorithm"
+        value: false
+      - key: "on"
+        name: "New Algorithm"
+        value: true
+    
+    default_variation: "off"
+    
+    # Beta: segment-based targeting
+    targeting_rules:
+      - description: "Enable for marketplace power users only"
+        conditions:
+          - attribute: "segment"
+            operator: "in"
+            values: ["marketplace_power_users"]
+        variation: "on"
+      
+      - description: "Also enable for operators"
+        conditions:
+          - attribute: "account_type"
+            operator: "equals"
+            value: "operator"
+        variation: "on"
+    
+    prerequisites: []
+    
+    status: "testing"
+    launched_date: "2026-03-01"
+    beta: true
+
+
+  # ========== ESCROW PAYMENT FLOW ==========
+  # Kill switch for payment escrow system
+  escrow_payment_flow:
+    key: "escrow_payment_flow"
+    name: "Escrow Payment Flow"
+    description: "Enable Stripe Connect escrow for service payment protection"
+    kind: "boolean"
+    enabled: true
+    
+    variations:
+      - key: "off"
+        name: "Disabled"
+        value: false
+      - key: "on"
+        name: "Enabled"
+        value: true
+    
+    default_variation: "on"
+    
+    # Simple: enabled for everyone
+    rollout_percentage: 100
+    
+    prerequisites: []
+    
+    status: "full_rollout"
+    launched_date: "2025-12-01"
+    kill_switch: true  # Emergency disable flag
+    
+    # Monitoring
+    health_check:
+      metric: "payment_processing_error_rate"
+      alert_threshold: 0.05  # 5% error rate triggers alarm
+
+
+  # ========== PROVIDER ONBOARDING SIMPLIFIED ==========
+  # Progressive rollout by provider tier
+  provider_onboarding_simplified:
+    key: "provider_onboarding_simplified"
+    name: "Simplified Provider Onboarding"
+    description: "Simplified onboarding flow for new providers"
+    kind: "boolean"
+    enabled: true
+    
+    variations:
+      - key: "off"
+        name: "Standard Onboarding"
+        value: false
+      - key: "on"
+        name: "Simplified Onboarding"
+        value: true
+    
+    default_variation: "off"
+    
+    # Tier-based progressive rollout
+    targeting_rules:
+      - description: "10% rollout to basic tier providers"
+        conditions:
+          - attribute: "account_type"
+            operator: "equals"
+            value: "provider"
+          - attribute: "subscription_tier"
+            operator: "equals"
+            value: "basic"
+        rollout_percentage: 10
+        variation: "on"
+      
+      - description: "50% rollout to standard tier providers"
+        conditions:
+          - attribute: "account_type"
+            operator: "equals"
+            value: "provider"
+          - attribute: "subscription_tier"
+            operator: "equals"
+            value: "standard"
+        rollout_percentage: 50
+        variation: "on"
+      
+      - description: "100% rollout to premium tier providers"
+        conditions:
+          - attribute: "account_type"
+            operator: "equals"
+            value: "provider"
+          - attribute: "subscription_tier"
+            operator: "equals"
+            value: "premium"
+        rollout_percentage: 100
+        variation: "on"
+      
+      - description: "100% rollout to enterprise tier providers"
+        conditions:
+          - attribute: "account_type"
+            operator: "equals"
+            value: "provider"
+          - attribute: "subscription_tier"
+            operator: "equals"
+            value: "enterprise"
+        rollout_percentage: 100
+        variation: "on"
+    
+    prerequisites: []
+    
+    status: "partial_rollout"
+    launched_date: "2026-01-20"
+
+
+# User segments for targeting
+segments:
+  new_providers:
+    name: "New Providers"
+    description: "Providers with account age < 30 days"
+    conditions:
+      - attribute: "account_type"
+        operator: "equals"
+        value: "provider"
+      - attribute: "account_age_days"
+        operator: "lessThan"
+        value: 30
+
+  verified_providers:
+    name: "Verified Providers"
+    description: "Providers who have completed verification"
+    conditions:
+      - attribute: "account_type"
+        operator: "equals"
+        value: "provider"
+      - attribute: "is_verified"
+        operator: "equals"
+        value: true
+
+  high_gmv_customers:
+    name: "High GMV Customers"
+    description: "Customers with > $5000 lifetime bookings"
+    conditions:
+      - attribute: "account_type"
+        operator: "equals"
+        value: "customer"
+      - attribute: "total_bookings"
+        operator: "greaterThan"
+        value: 50
+
+  enterprise_operators:
+    name: "Enterprise Operators"
+    description: "Platform operators with enterprise access"
+    conditions:
+      - attribute: "account_type"
+        operator: "equals"
+        value: "operator"
+      - attribute: "subscription_tier"
+        operator: "equals"
+        value: "enterprise"
+
+  marketplace_power_users:
+    name: "Marketplace Power Users"
+    description: "Users with 10+ bookings and 90+ days tenure"
+    conditions:
+      - attribute: "total_bookings"
+        operator: "greaterThanOrEqual"
+        value: 10
+      - attribute: "account_age_days"
+        operator: "greaterThanOrEqual"
+        value: 90
+
+
+# Flag prerequisites
+# Some flags depend on others being enabled first
+prerequisites:
+  dynamic_pricing:
+    requires:
+      - enable_instant_booking
+    reason: "Dynamic pricing only works with instant booking enabled"
+  
+  provider_verification_v2:
+    requires:
+      - "enable_ml_recommendations"
+    reason: "Automated verification uses ML pipeline"
+
+
+# Archival and cleanup
+archived_flags:
+  - key: "legacy_two_factor_auth"
+    archived_date: "2025-12-01"
+    reason: "Replaced with new_two_factor_auth"
+    migration_flag: "new_two_factor_auth"
