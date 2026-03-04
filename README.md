@@ -314,7 +314,7 @@ verified-services-marketplace/
 │   ├── DECISION_LOG.md           # Key technical and product decisions
 │   └── ROADMAP.md                # Phased rollout plan
 └── src/
-    ├── README.md                 # PM reference implementation notes
+    ├── README.md                 # Project overview and documentation
     ├── matching/
     │   └── matching_engine.py    # Provider-job matching algorithm
     ├── verification/
@@ -414,6 +414,54 @@ This implementation includes complete modern tooling infrastructure for developm
 | QA Engineer | $15,750 | Testing and quality assurance |
 | **Total Engagement** | **$278,280** | Fixed-price, phases billed at milestones |
 | **Ongoing Run Rate** | **$1,100/month** | Infrastructure + AI tokens + support + variable transaction costs |
+
+---
+
+## Business Context
+
+### Market Size
+US real estate service coordination is a $28B market across property maintenance, renovation, inspection, and specialty services. ~12,000 property management companies manage 10+ properties and coordinate external service providers.
+
+### Unit Economics
+
+| Metric | Value |
+|--------|-------|
+| **Before** | |
+| Monthly service requests | 800 |
+| Coordination cost per request | $45 |
+| Annual coordination cost | $432K |
+| **After** | |
+| Monthly service requests | 800+ |
+| Coordination cost per request | $12 |
+| Annual coordination cost | $115K |
+| Annual cost savings | $317K |
+| Marketplace revenue (12% GMV) | $1.8M/year |
+| GMV at launch | $15M/year |
+| **Platform build cost** | **$278,280** |
+| **Monthly run rate** | **$1,100** |
+| **Payback period** | **11 months** |
+| **3-year ROI** | **18x** |
+
+### Pricing Model
+If productized as a multi-tenant marketplace SaaS: $2,000-8,000/month based on monthly request volume + 2-5% of GMV, targeting $10-20M ARR.
+
+---
+
+## PM Perspective
+
+The hardest decision was whether to launch with provider verification as a hard requirement or allow unverified providers initially. The operations team wanted to maximize provider supply — "we can verify them later." I pushed for verification-first because the existing system's 3.2/5 satisfaction score was partly driven by unreliable providers. We compromised: launched with a "provisional" tier — providers could take jobs immediately but had 30 days to complete verification. This maintained supply while creating urgency. 92% completed verification within the window; the 8% who didn't were mostly providers who wouldn't have met the quality bar anyway.
+
+The cold start problem was real but solved differently than expected. The standard marketplace playbook says "subsidize supply first." But in our case, the operator already had relationships with 45 providers — the problem wasn't finding providers, it was managing and scaling them. I focused the launch on converting existing provider relationships to the platform first (3 metros), then expanded. Starting with a captive supply base meant we hit 80%+ request fulfillment in week one, which is unheard of for marketplace launches.
+
+What I'd do differently: I would have built the dispute resolution workflow in Phase 2 instead of Phase 3. Our first escrow dispute came in week 3 of launch and we had to handle it manually — a provider completed work that the property manager claimed was substandard. Having the structured dispute flow (photo evidence upload, mediator review, partial release) ready at launch would have saved 15+ hours of manual intervention in the first month.
+
+---
+
+## About This Project
+
+Built as a product management engagement for a national real estate services operator expanding from 3 metros to 12, processing 800+ monthly service requests across residential and commercial properties. I led discovery with property managers, service providers, and operations teams to map the two-sided marketplace dynamics. Designed the provider verification pipeline, intelligent matching algorithm, and trust architecture. Made technology decisions on PostGIS-based geospatial matching and Stripe Connect escrow payments. Defined marketplace health metrics including liquidity ratios, match rates, and provider quality scoring.
+
+**Note:** Client-identifying details have been anonymized. Code represents the architecture and design decisions I drove; production deployments were managed by client engineering teams.
 
 ---
 
