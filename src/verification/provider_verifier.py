@@ -2,6 +2,26 @@
 Provider Verifier - Reference Implementation
 Automated verification pipeline: identity checks (Checkr), license validation
 (state APIs), insurance parsing (ACORD forms), and credential expiration monitoring.
+
+Production Notes (not implemented in this demo):
+- Stripe Connect Onboarding: Provider payouts should use Stripe Connect with
+  the Express or Custom account type. Verify webhooks with
+  stripe.Webhook.construct_event() using the endpoint-specific secret. Never
+  store Stripe secret keys in code — use environment variables or Vault.
+- Background Check HMAC: Checkr webhooks carry an X-Checkr-Signature header.
+  Verify using HMAC-SHA256 with the Checkr webhook secret before processing
+  results. Spoofed background check results are a critical trust/safety risk.
+- W3C Verifiable Credentials: For license and insurance verification results,
+  consider issuing W3C Verifiable Credentials (VCs) that providers can share
+  with multiple marketplaces. This is an emerging standard (did:web, JSON-LD)
+  that reduces re-verification costs across platforms.
+- PII Handling: Provider SSNs, driver's license numbers, and background check
+  results are highly sensitive. Encrypt at rest with per-provider KMS keys.
+  Apply field-level access controls — customer-facing endpoints should never
+  expose raw PII, only verification status (passed/failed/pending).
+- FCRA Compliance: Background checks are regulated under the Fair Credit
+  Reporting Act. Implement adverse action notice workflows when a check fails:
+  pre-adverse notice → waiting period → final adverse action with dispute rights.
 """
 
 from dataclasses import dataclass
