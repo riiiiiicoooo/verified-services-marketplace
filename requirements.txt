@@ -1,12 +1,37 @@
+# Web Framework
 fastapi==0.115.0
 uvicorn==0.30.0
+
+# Data Validation
 pydantic==2.10.0
+
+# Database
 psycopg2-binary==2.9.9
 sqlalchemy==2.0.36
 geoalchemy2==0.14.1
+asyncpg==0.29.0
+supabase==2.0.3
+
+# Payments
 stripe==7.8.0
-pytest==8.3.0
-pytest-asyncio==0.24.0
+
+# Feature Flags
+ldclient-py==8.3.0
+
+# Utilities
 python-dateutil==2.8.2
+
+# Scientific/Analytics
 numpy==1.26.2
 scipy==1.11.4
+
+# Testing
+pytest==8.3.0
+pytest-asyncio==0.24.0
+pytest-cov==4.1.0
+
+# Development
+python-dotenv==1.0.0
+black==24.1.1
+flake8==7.0.0
+mypy==1.8.0

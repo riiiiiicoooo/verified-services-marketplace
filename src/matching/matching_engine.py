@@ -121,8 +121,68 @@ class MatchingEngine:
             AND pa.available_capacity > 0
         ORDER BY distance_miles ASC;
         """
-        # Reference: return empty list (actual query runs against PostGIS)
-        return []
+        if not self.db:
+            return []
+
+        try:
+            # Execute PostGIS radius query
+            query = """
+                SELECT
+                    p.id, p.business_name, p.tier, p.composite_rating,
+                    p.completion_rate, p.avg_response_minutes,
+                    p.updated_at, p.last_active_at,
+                    pa.available_capacity,
+                    ST_Distance(
+                        p.service_location,
+                        ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography
+                    ) / 1609.34 AS distance_miles
+                FROM providers p
+                JOIN provider_services ps ON ps.provider_id = p.id
+                JOIN provider_availability pa ON pa.provider_id = p.id
+                WHERE ps.category_id = %s
+                    AND ST_DWithin(
+                        p.service_location,
+                        ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography,
+                        %s * 1609.34
+                    )
+                    AND p.verification_status = 'verified'
+                    AND p.is_active = true
+                    AND pa.available_capacity > 0
+                ORDER BY distance_miles ASC;
+            """
+
+            # Execute with parameters: lng, lat, category_id, lng, lat, radius_miles
+            results = self.db.execute(
+                query,
+                (
+                    request.longitude,
+                    request.latitude,
+                    request.category_id,
+                    request.longitude,
+                    request.latitude,
+                    request.matching_radius_miles,
+                )
+            ).fetchall()
+
+            # Convert result tuples to dicts for scoring
+            candidates = []
+            columns = [
+                "id", "business_name", "tier", "composite_rating",
+                "completion_rate", "avg_response_minutes",
+                "updated_at", "last_active_at",
+                "available_capacity", "distance_miles"
+            ]
+
+            for row in results:
+                candidate = dict(zip(columns, row))
+                candidates.append(candidate)
+
+            return candidates
+
+        except Exception as e:
+            # Log error but don't crash - return empty list
+            print(f"PostGIS query failed: {e}")
+            return []
 
     def _score_provider(self, candidate: dict) -> MatchedProvider:
         """

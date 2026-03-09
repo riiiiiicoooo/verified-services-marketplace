@@ -3,6 +3,7 @@ Stripe Connect Integration for Verified Services Marketplace
 Handles escrow payments, provider payouts, and marketplace fees.
 """
 
+import os
 import stripe
 import logging
 from decimal import Decimal

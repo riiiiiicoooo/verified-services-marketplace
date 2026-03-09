@@ -8,6 +8,7 @@
 
 import { Clerk } from "@clerk/clerk-sdk-node";
 import { clerkClient } from "@clerk/nextjs/server";
+import { createClient } from "@supabase/supabase-js";
 
 const clerk = new Clerk({
   apiKey: process.env.CLERK_SECRET_KEY,
@@ -543,6 +544,3 @@ export async function syncUserMetadata(userId: string): Promise<void> {
     console.error("Failed to sync user metadata:", error);
   }
 }
-
-// Helper import
-import { createClient } from "@supabase/supabase-js";

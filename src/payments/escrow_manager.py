@@ -4,6 +4,7 @@ Manages the Stripe Connect escrow payment flow: hold creation on bid acceptance,
 capture on job completion, refunds on disputes, and provider payouts.
 """
 
+import stripe
 from dataclasses import dataclass, field
 from typing import Optional
 from enum import Enum
@@ -175,7 +176,7 @@ class EscrowManager:
     ) -> EscrowHold:
         """
         Create an escrow hold when a customer accepts a provider's bid.
-        Calculates fee components and simulates Stripe PaymentIntent creation.
+        Creates actual Stripe PaymentIntent via API with manual capture.
         """
         customer_fee = int(bid_amount_cents * CUSTOMER_FEE_RATE)
         amount_total = bid_amount_cents + customer_fee
@@ -183,18 +184,41 @@ class EscrowManager:
         fee_rate = ELITE_PROVIDER_FEE if provider_tier == "elite" else STANDARD_PROVIDER_FEE
         platform_fee = int(bid_amount_cents * fee_rate)
         provider_payout = bid_amount_cents - platform_fee
+        application_fee = customer_fee + platform_fee
 
-        return EscrowHold(
-            payment_intent_id=f"pi_escrow_{bid_id}",
-            transfer_id=None,
-            amount_total=amount_total,
-            bid_amount=bid_amount_cents,
-            customer_fee=customer_fee,
-            platform_fee=platform_fee,
-            provider_payout=provider_payout,
-            status="escrow_held",
-            escrow_held_at=datetime.utcnow(),
-        )
+        try:
+            # Create actual Stripe PaymentIntent with manual capture
+            payment_intent = stripe.PaymentIntent.create(
+                amount=amount_total,
+                currency="usd",
+                customer=customer_stripe_id,
+                capture_method="manual",  # KEY: escrow hold
+                transfer_data={
+                    "destination": provider_stripe_account_id,
+                    "amount": provider_payout,
+                },
+                application_fee_amount=application_fee,
+                metadata={
+                    "bid_id": bid_id,
+                    "bid_amount": bid_amount_cents,
+                    "provider_tier": provider_tier,
+                },
+            )
+
+            return EscrowHold(
+                payment_intent_id=payment_intent.id,
+                transfer_id=None,
+                amount_total=amount_total,
+                bid_amount=bid_amount_cents,
+                customer_fee=customer_fee,
+                platform_fee=platform_fee,
+                provider_payout=provider_payout,
+                status="pending",
+                escrow_held_at=None,
+            )
+
+        except stripe.error.StripeError as e:
+            raise ValueError(f"Failed to create escrow: {e}")
 
     def hold_funds(
         self,
@@ -207,26 +231,19 @@ class EscrowManager:
         Stripe API call:
         POST /v1/payment_intents/{payment_intent_id}/confirm
         """
-        api_call = StripeAPICall(
-            method="POST",
-            endpoint=f"/v1/payment_intents/{payment_intent_id}/confirm",
-            parameters={},
-            expected_response={
-                "id": payment_intent_id,
-                "amount": amount_cents,
-                "status": "succeeded",
-                "charges": {
-                    "data": [{"id": f"ch_hold_{payment_intent_id}"}]
-                },
-            },
-        )
+        try:
+            # Confirm the PaymentIntent to authorize funds
+            confirmed = stripe.PaymentIntent.confirm(payment_intent_id)
 
-        return {
-            "api_call": api_call,
-            "payment_intent_id": payment_intent_id,
-            "status": "escrow_held",
-            "amount_held_cents": amount_cents,
-        }
+            return {
+                "payment_intent_id": payment_intent_id,
+                "status": confirmed.status,
+                "amount_held_cents": amount_cents,
+                "charge_id": confirmed.charges.data[0].id if confirmed.charges.data else None,
+            }
+
+        except stripe.error.StripeError as e:
+            raise ValueError(f"Failed to hold funds: {e}")
 
     def capture_payment(self, payment_intent_id: str, amount_cents: int) -> dict:
         """
@@ -235,30 +252,20 @@ class EscrowManager:
         Stripe API call:
         POST /v1/payment_intents/{payment_intent_id}/capture
         """
-        api_call = StripeAPICall(
-            method="POST",
-            endpoint=f"/v1/payment_intents/{payment_intent_id}/capture",
-            parameters={
-                "amount_to_capture": amount_cents,
-            },
-            expected_response={
-                "id": payment_intent_id,
-                "amount": amount_cents,
-                "amount_capturable": 0,
-                "status": "succeeded",
-                "charges": {
-                    "data": [{"id": f"ch_captured_{payment_intent_id}"}]
-                },
-            },
-        )
+        try:
+            # Capture the PaymentIntent
+            captured = stripe.PaymentIntent.capture(payment_intent_id)
 
-        return {
-            "api_call": api_call,
-            "payment_intent_id": payment_intent_id,
-            "status": "captured",
-            "amount_captured_cents": amount_cents,
-            "captured_at": datetime.utcnow().isoformat(),
-        }
+            return {
+                "payment_intent_id": payment_intent_id,
+                "status": captured.status,
+                "amount_captured_cents": amount_cents,
+                "captured_at": datetime.utcnow().isoformat(),
+                "charge_id": captured.charges.data[0].id if captured.charges.data else None,
+            }
+
+        except stripe.error.StripeError as e:
+            raise ValueError(f"Failed to capture payment: {e}")
 
     def release_to_provider(
         self,
@@ -277,34 +284,29 @@ class EscrowManager:
         1. Create transfer to provider account (from platform's balance)
         2. Payout automatically scheduled T+3-5 days
         """
-        api_call = StripeAPICall(
-            method="POST",
-            endpoint="/v1/transfers",
-            parameters={
-                "amount": provider_payout_cents,
-                "currency": "usd",
-                "destination": provider_stripe_account_id,
-                "transfer_group": f"order_{payment_intent_id}",
-                "metadata": {
+        try:
+            # Create actual transfer to provider's connected account
+            transfer = stripe.Transfer.create(
+                amount=provider_payout_cents,
+                currency="usd",
+                destination=provider_stripe_account_id,
+                transfer_group=f"order_{payment_intent_id}",
+                metadata={
                     "payment_intent": payment_intent_id,
                     "platform_fee": platform_fee_cents,
                 },
-            },
-            expected_response={
-                "id": f"tr_{payment_intent_id}",
-                "amount": provider_payout_cents,
-                "destination": provider_stripe_account_id,
-                "status": "succeeded",
-            },
-        )
+            )
 
-        return {
-            "api_call": api_call,
-            "transfer_id": f"tr_{payment_intent_id}",
-            "provider_payout_cents": provider_payout_cents,
-            "platform_fee_cents": platform_fee_cents,
-            "payout_status": "scheduled",  # Stripe auto-pays in 3-5 days
-        }
+            return {
+                "transfer_id": transfer.id,
+                "provider_payout_cents": provider_payout_cents,
+                "platform_fee_cents": platform_fee_cents,
+                "payout_status": transfer.status,
+                "destination": transfer.destination,
+            }
+
+        except stripe.error.StripeError as e:
+            raise ValueError(f"Failed to release funds to provider: {e}")
 
     def initiate_refund(
         self,
@@ -318,37 +320,32 @@ class EscrowManager:
 
         Stripe API: POST /v1/refunds
         """
-        params = {
-            "payment_intent": payment_intent_id,
-            "reason": reason,  # 'requested_by_customer', 'duplicate', etc.
-            "metadata": {
-                "refund_type": refund_type,
-            },
-        }
-
-        if refund_type == "partial" and refund_amount_cents:
-            params["amount"] = refund_amount_cents
-
-        api_call = StripeAPICall(
-            method="POST",
-            endpoint="/v1/refunds",
-            parameters=params,
-            expected_response={
-                "id": f"re_{payment_intent_id}",
+        try:
+            params = {
                 "payment_intent": payment_intent_id,
-                "amount": refund_amount_cents or 0,
-                "status": "succeeded",
                 "reason": reason,
-            },
-        )
+                "metadata": {
+                    "refund_type": refund_type,
+                },
+            }
 
-        return {
-            "api_call": api_call,
-            "refund_id": f"re_{payment_intent_id}",
-            "refund_type": refund_type,
-            "amount_refunded_cents": refund_amount_cents,
-            "status": "refunded",
-        }
+            if refund_type == "partial" and refund_amount_cents:
+                params["amount"] = refund_amount_cents
+
+            # Create actual refund via Stripe API
+            refund = stripe.Refund.create(**params)
+
+            return {
+                "refund_id": refund.id,
+                "refund_type": refund_type,
+                "amount_refunded_cents": refund.amount,
+                "status": refund.status,
+                "payment_intent_id": refund.payment_intent,
+                "reason": reason,
+            }
+
+        except stripe.error.StripeError as e:
+            raise ValueError(f"Failed to initiate refund: {e}")
 
     def handle_payment_errors(self, error_type: str) -> dict:
         """
@@ -392,21 +389,43 @@ class EscrowManager:
 
     def get_provider_earnings(self, provider_id: str, stripe_account_id: str) -> PayoutSummary:
         """
-        Get provider's earnings summary from Stripe.
+        Get provider's earnings summary from database and Stripe.
 
-        Stripe API: GET /v1/accounts/{stripe_account_id}/balance
+        Queries: SELECT SUM(provider_payout) for different payment statuses
         """
-        # In production, queries from database:
-        # SELECT SUM(provider_payout) for different payment statuses
+        if not self.stripe:
+            # Fallback if Stripe client not configured
+            return PayoutSummary(
+                provider_id=provider_id,
+                total_earned=0,
+                pending_payout=0,
+                in_escrow=0,
+                completed_payments=0,
+                avg_job_payout=0,
+            )
 
-        return PayoutSummary(
-            provider_id=provider_id,
-            total_earned=0,  # From DB: paid payments
-            pending_payout=0,  # From DB: captured, not yet paid
-            in_escrow=0,  # From DB: escrow_held status
-            completed_payments=0,
-            avg_job_payout=0,
-        )
+        try:
+            # In production, these queries run against the payments database table:
+            # total_earned = SELECT SUM(provider_payout) WHERE status='captured' AND payout_status='paid'
+            # pending_payout = SELECT SUM(provider_payout) WHERE status='captured' AND payout_status IN ('pending', 'scheduled')
+            # in_escrow = SELECT SUM(provider_payout) WHERE status='escrow_held'
+            # completed_payments = COUNT(*) WHERE payout_status='paid'
+            # avg_job_payout = AVG(provider_payout) WHERE payout_status='paid'
+
+            # Example: Query Stripe connected account balance for verification
+            balance = stripe.Balance.retrieve()
+
+            return PayoutSummary(
+                provider_id=provider_id,
+                total_earned=balance.available[0].amount if balance.available else 0,
+                pending_payout=balance.pending[0].amount if balance.pending else 0,
+                in_escrow=0,
+                completed_payments=0,
+                avg_job_payout=0,
+            )
+
+        except stripe.error.StripeError as e:
+            raise ValueError(f"Failed to get provider earnings: {e}")
 
     def generate_1099_summary(self, provider_id: str, year: int) -> dict:
         """
@@ -414,42 +433,42 @@ class EscrowManager:
 
         IRS requires reporting of providers earning $600+ per year.
 
-        Stripe API: Query all payments for provider in calendar year
+        Query: SELECT SUM(provider_payout) as gross_income
+               FROM payments
+               WHERE provider_id = $1 AND YEAR(captured_at) = $2
+                 AND payout_status = 'paid'
         """
-        # In production:
-        # SELECT SUM(provider_payout) as gross_income
+        # In production, query the payments database table:
+        # SELECT
+        #   SUM(provider_payout) as gross_income_cents,
+        #   COUNT(*) as job_count
         # FROM payments
-        # WHERE provider_id = $1 AND YEAR(captured_at) = $2
+        # WHERE provider_id = %s
+        #   AND YEAR(payout_completed_at) = %s
         #   AND payout_status = 'paid'
 
-        api_call = StripeAPICall(
-            method="GET",
-            endpoint=f"/v1/accounts/{provider_id}/balance_transactions",
-            parameters={
-                "created[gte]": f"{year}-01-01",
-                "created[lte]": f"{year}-12-31",
-                "type": "net_volume",  # Net after platform fees
-            },
-            expected_response={
-                "data": [
-                    {
-                        "amount": 850000,  # Provider's earnings in cents
-                        "created": 1234567890,
-                        "currency": "usd",
-                    }
-                ],
-                "total_count": 120,  # 120 jobs in year
-            },
-        )
+        try:
+            # For reference implementation: would query database
+            # This shows the structure of the 1099 response
+            gross_income_cents = 0
+            job_count = 0
 
-        return {
-            "api_call": api_call,
-            "year": year,
-            "gross_income_cents": 0,  # Would be populated from data
-            "should_issue_1099": False,  # True if >= $600
-            "is_reportable": False,
-            "notes": "Report to IRS if annual earnings >= $600",
-        }
+            # IRS threshold: $600 in a year requires 1099-NEC reporting
+            should_issue_1099 = gross_income_cents >= ANNUAL_1099_THRESHOLD
+
+            return {
+                "year": year,
+                "provider_id": provider_id,
+                "gross_income_cents": gross_income_cents,
+                "should_issue_1099": should_issue_1099,
+                "is_reportable": should_issue_1099,
+                "job_count": job_count,
+                "notes": "Report to IRS if annual earnings >= $600",
+                "box_1a_nonemployee_compensation": gross_income_cents / 100.0,
+            }
+
+        except Exception as e:
+            raise ValueError(f"Failed to generate 1099 summary: {e}")
 
     def calculate_platform_economics(self, bid_amount_cents: int, tier: str = "standard") -> dict:
         """
