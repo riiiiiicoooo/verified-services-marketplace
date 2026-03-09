@@ -437,3 +437,99 @@ Stripe charges 2.9% + $0.30 per transaction. On a $1,000 job, that's $29.30. We 
 - ~$450K/year reduction in net revenue (factored into unit economics)
 - If Stripe raises rates, we absorb the increase (or renegotiate — at $15M GMV we have some leverage)
 - Simpler provider and customer communications around pricing
+
+---
+
+## DEC-013: Pivot from Comprehensive Verification to Progressive Verification Model
+
+**Date:** July 2024
+**Status:** Accepted (supersedes initial approach)
+**Decider:** Jacob George (PM), Operations Lead
+
+**Context:**
+
+The launch verification flow required providers to complete 12 verification steps before going live on the marketplace:
+1. Background check (Checkr)
+2. License verification (state licensing authority API)
+3. Insurance proof upload + parsing
+4. Reference submission + contact
+5. Portfolio submission (3+ photos)
+6. Service area definition (mapping)
+7. Availability schedule
+8. Rate sheet
+9. Business tax ID verification
+10. Banking info for payouts (Stripe Connect)
+11. Profile bio and headshot
+12. Service category specialization selection
+
+The flow was comprehensive. Every provider who launched had been thoroughly vetted.
+
+**What Happened:**
+
+Provider completion rate was 23%. Analysis of drop-off points:
+- 45% abandoned at step 3 (insurance upload) — "this is too much paperwork"
+- 30% abandoned at step 6 (service area mapping) — "I already know my service area, why am I drawing on a map?"
+- 20% abandoned at step 10 (banking info) — "I'm not giving my bank details to a stranger"
+
+The message: comprehensive upfront verification was too friction-heavy. Providers wanted to get on the platform and start bidding immediately.
+
+**Decision:**
+
+Pivoted to progressive verification. List providers immediately with minimal info (name, photo, basic service type). Unlock features as they complete verification steps.
+
+**New flow:**
+1. **Day 0 (goes live immediately with):** Name, photo, service category, basic rate
+2. **Week 1 (unlock badges):** Background check → "Verified Background" badge
+3. **Week 1 (unlock features):** License upload → can accept jobs (without license badge, can only bid but jobs go to licensed providers first)
+4. **Week 2 (unlock trust):** Insurance proof → "Insured Provider" badge + higher job visibility
+5. **Week 3 (unlock premium):** 5-star average after 3 jobs → "Elite Provider" tier + premium visibility
+6. **Ongoing:** Reference portfolio, specializations, availability updates — not required but incentivized with visibility boosts
+
+### Rationale
+
+1. **Reduced friction:** Providers can go live immediately. First provider on the platform had access within 15 minutes of signup (vs. 2-3 days waiting for background check).
+
+2. **Gamification of trust:** Instead of "verify everything or don't list," verification becomes a progression. Providers see: "Complete background check to get the Verified badge" → motivation to verify.
+
+3. **Data-driven trust:** Completion rate became 78% (from 23%) because:
+   - Early listings meant providers could start earning immediately
+   - Earning money motivated completing verification (unlocks more features)
+   - Customers preferred providers with more badges (visual status)
+   - Feature unlock tied verification to real benefit, not just a hurdle
+
+4. **Customer protection maintained:** Background checks still happen (just asynchronously). If background check fails, provider is immediately disabled. Insurance requirements remain but are gamified, not gatekeeping.
+
+**Implementation:**
+- Restructured provider onboarding flow (2 weeks)
+- Built verification step registry (which features unlock at which steps) (1 week)
+- Built badge system and visibility ranking (1 week)
+- Created dashboard showing providers their progress ("3 of 8 steps complete, unlock Elite status")
+
+**Metrics:**
+- Completion rate: 23% → 78% (+55pp)
+- Time-to-first-listing: 2-3 days → same-day (average 4 hours)
+- Provider satisfaction: "The app lets me start earning immediately while I complete my profile" (vs. previous "I can't do anything until I pass verification")
+
+**Consequences:**
+
+**Short-term:**
+- More unverified providers on the platform initially
+- Requires more operator monitoring (flag suspicious profiles, respond to customer complaints about provider quality)
+- Backend work to support "features locked until X verified" logic
+
+**Long-term:**
+- Dramatically improved provider acquisition (lower barrier to entry)
+- Kept quality baseline (background checks still happen, just delayed)
+- Reduced operator review load (now focused on active abuse, not checking boxes)
+- Provider retention improved (they see path to advancement — Elite tier → premium visibility)
+
+**Provider feedback:**
+- "I can start bidding while waiting for background check" (positive)
+- "Gamification made me want to complete all the steps to reach Elite" (positive)
+- Some pushback from highly-verified providers: "Newbies are competing with me before they're fully vetted" (mitigated by showing customer badges, so customers favor verified providers)
+
+**Lesson:**
+
+Perfect upfront verification locks out good providers. Progressive verification with early access + gamified advancement gets more providers, maintains trust through ongoing verification, and creates engagement path. The 23% → 78% completion rate shows that friction reduction (listing immediately) is more important than verification completion.
+
+---
